@@ -76,6 +76,25 @@ export default function Home() {
     return 0;
   };
 
+  const isSellingHeader = (h: string) => {
+    const n = normalizeHeader(h);
+    // prefer selling price columns; avoid purchase price (EK)
+    const positiveHints = ['vk', 'verkauf', 'verkaufspreis', 'listenpreis', 'brutto', 'vkp', 'verkaufpreis', 'preis'];
+    const negativeHints = ['ek', 'einkauf', 'nettoek', 'nettoeinkauf'];
+    if (negativeHints.some(s => n.includes(s))) return false;
+    return positiveHints.some(s => n.includes(s));
+  };
+
+  const maxSellingPriceFromRow = (row: Record<string, any>): number => {
+    let max = 0;
+    for (const [key, value] of Object.entries(row)) {
+      if (!isSellingHeader(key)) continue;
+      const v = parseNumber(value);
+      if (v > max) max = v;
+    }
+    return max;
+  };
+
   const fetchAndParseERP = async () => {
     try {
       const response = await fetch(ERP_EXPORT_URL, { cache: 'no-store' });
@@ -96,7 +115,9 @@ export default function Home() {
         const category = keys['category'] || keys['kategorie'] || keys['warengruppe'] || 'Sonstiges';
         const unit = keys['unit'] || keys['einheit'] || 'Stück';
         const description = keys['description'] || keys['beschreibung'] || '';
-        const basePrice = parseNumber(keys['price'] ?? keys['preis'] ?? keys['nettopreis'] ?? keys['vk'] ?? keys['vkpreis'] ?? 0);
+        const basePriceCandidate = parseNumber(keys['price'] ?? keys['preis'] ?? keys['nettopreis'] ?? keys['vk'] ?? keys['vkpreis'] ?? 0);
+        const highestSelling = maxSellingPriceFromRow(row);
+        const basePrice = highestSelling > 0 ? highestSelling : basePriceCandidate;
 
         return {
           id: String(keys['id'] || keys['artikelnummer'] || keys['sku'] || `${firstSheetName}-${idx + 1}`),
@@ -180,6 +201,29 @@ export default function Home() {
   const generateResponse = (userInput: string): string => {
     const input = userInput.toLowerCase();
     const data = products.length ? products : SAMPLE_PRODUCTS;
+    // Special flow: Badheizkörper → list all matches, then price highest selling when specific
+    if (input.includes('badheizkörper') || input.includes('bad heizkörper') || input.includes('badheizkoerper')) {
+      const matches = data.filter(p =>
+        p.name.toLowerCase().includes('badheiz') ||
+        p.category.toLowerCase().includes('heizkörper') ||
+        p.category.toLowerCase().includes('heizung')
+      );
+
+      // If the user named a specific product, try to find exact-ish match and return highest price
+      const exact = matches.find(p => input.includes(p.name.toLowerCase()));
+      if (exact) {
+        const price = getSegmentedPrice(exact.basePrice, customerSegment);
+        return `Preis (höchster Verkaufspreis, ${customerSegment}): \n\n**${exact.name}** → €${price} pro ${exact.unit}`;
+      }
+
+      if (matches.length) {
+        const list = matches.slice(0, 15).map(p => `• ${p.name}`).join('\n');
+        return `Ich habe folgende Badheizkörper gefunden. Welches Produkt möchten Sie genau?\n\n${list}`;
+      }
+
+      return 'Ich habe derzeit keine Badheizkörper im ERP gefunden.';
+    }
+
 
     // Product search
     if (input.includes('waschbecken') || input.includes('waschtisch')) {
@@ -254,18 +298,32 @@ export default function Home() {
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI response delay
-    setTimeout(() => {
-      const response = generateResponse(input);
+    try {
+      const res = await fetch('/api/assist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: input }),
+      });
+      const data = await res.json();
+      const text = res.ok && data?.reply ? String(data.reply) : generateResponse(input);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response,
+        content: text,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
+    } catch (e) {
+      const fallback = generateResponse(input);
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: fallback,
+        timestamp: new Date(),
+      }]);
+    } finally {
       setIsTyping(false);
-    }, 1000);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

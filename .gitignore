@@ -1,0 +1,6 @@
+# Ignore local env files and build artifacts
+my-app/.env*
+my-app/.next/
+my-app/node_modules/
+
+
