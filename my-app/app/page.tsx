@@ -1,6 +1,7 @@
 'use client';
 
 import FarmGrid from "./components/FarmGrid";
+import TrajectoryDashboard from "./components/TrajectoryDashboard";
 import { useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
@@ -8,6 +9,7 @@ export default function Home() {
   const [showToast, setShowToast] = useState(false);
   const [toastContent, setToastContent] = useState({ title: '', message: '' });
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showTrajectory, setShowTrajectory] = useState(false);
   const bucketName = process.env.NEXT_PUBLIC_SUPABASE_BUCKET || 'trajectory-data';
   const objectKey = 'tractor_trajectory_nov6.xlsx'; // Filename in Supabase Storage
 
@@ -85,15 +87,13 @@ export default function Home() {
   };
 
   const handleVisualizeTrajectoryClick = () => {
+    setShowTrajectory((prev) => !prev);
     setToastContent({
-      title: 'Your third todo!',
-      message: 'Your task is to visualize the current loader state based on the trajectory Excel data. Have fun! 🎨'
+      title: 'Trajectory Visualization',
+      message: 'Fetching trajectory from Supabase and playing back in real-time.'
     });
     setShowToast(true);
-    // Auto-hide after 5 seconds
-    setTimeout(() => {
-      setShowToast(false);
-    }, 5000);
+    setTimeout(() => setShowToast(false), 3000);
   };
 
   return (
@@ -255,7 +255,7 @@ export default function Home() {
 
         {/* Content area */}
         <main className="flex-1 overflow-auto bg-gray-50 p-8">
-          <FarmGrid />
+          {showTrajectory ? <TrajectoryDashboard /> : <FarmGrid />}
         </main>
       </div>
     </div>
