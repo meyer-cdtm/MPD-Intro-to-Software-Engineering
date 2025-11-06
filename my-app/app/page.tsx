@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
 import * as XLSX from 'xlsx';
 
 interface Message {
@@ -29,6 +31,8 @@ const SAMPLE_PRODUCTS: Product[] = [
 ];
 
 export default function Home() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -157,6 +161,24 @@ export default function Home() {
     fetchAndParseERP();
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!isMounted) return;
+      const session = data.session;
+      setIsAuthenticated(!!session);
+      setUserEmail(session?.user?.email ?? null);
+    });
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session);
+      setUserEmail(session?.user?.email ?? null);
+    });
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
   const getSegmentedPrice = (basePrice: number, segment: CustomerSegment): number => {
     const discountBySegment: Record<CustomerSegment, number> = {
       Standard: 0,
@@ -275,6 +297,21 @@ export default function Home() {
     }
   };
 
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-8 max-w-md w-full text-center">
+          <img src="/Logo.png" alt="Freddy B2B Logo" className="w-12 h-12 object-contain mx-auto mb-3" />
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Habibi - don't go yet.</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">Click here to log back in.</p>
+          <Link href="/login" className="inline-flex items-center justify-center px-4 py-2.5 text-sm font-medium rounded-md bg-blue-600 hover:bg-blue-700 text-white">
+            Sign In
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       {/* Header */}
@@ -311,9 +348,17 @@ export default function Home() {
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Online</span>
               </div>
-              <button className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors">
-                Einstellungen
-              </button>
+              <div className="flex items-center gap-2">
+                {userEmail && (
+                  <span className="text-xs text-slate-600 dark:text-slate-300">{userEmail}</span>
+                )}
+                <button
+                  onClick={async () => { await supabase.auth.signOut(); }}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors"
+                >
+                  Abmelden
+                </button>
+              </div>
             </div>
           </div>
         </div>

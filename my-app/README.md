@@ -20,6 +20,30 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Authentication (Supabase)
+
+Email/password sign-in is enabled using Supabase. No sign-ups are exposed in the UI.
+
+1. Install dependencies (if not already):
+
+```bash
+npm install @supabase/supabase-js
+```
+
+2. Create `.env.local` in the project root with your Supabase credentials:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_public_key
+```
+
+3. Start the dev server and visit `/login` to sign in. After successful login you will be redirected to `/` and can sign out from the header.
+
+Files added:
+- `lib/supabaseClient.ts` – Supabase client initialization
+- `app/login/page.tsx` – Sign-in page (email + password)
+- `app/page.tsx` – Gated by session; shows Sign out
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
