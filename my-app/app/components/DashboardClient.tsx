@@ -1,101 +1,59 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
-import DashboardClient from "./components/DashboardClient";
+'use client';
 
-import FarmGrid from "./components/FarmGrid";
-import TrajectoryDashboard from "./components/TrajectoryDashboard";
+import FarmGrid from "./FarmGrid";
 import { useState } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { signout } from "../auth/actions";
+import type { User } from "@supabase/supabase-js";
 
-export default function Home() {
+interface DashboardClientProps {
+  user: User;
+}
+
+export default function DashboardClient({ user }: DashboardClientProps) {
   const [showToast, setShowToast] = useState(false);
   const [toastContent, setToastContent] = useState({ title: '', message: '' });
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [showTrajectory, setShowTrajectory] = useState(false);
-  const bucketName = process.env.NEXT_PUBLIC_SUPABASE_BUCKET || 'trajectory-data';
-  const objectKey = 'tractor_trajectory_nov6.xlsx'; // Filename in Supabase Storage
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const handleProtectMeClick = () => {
     setToastContent({
-      title: 'Welcome to your first todo!',
-      message: 'Your task is to implement authentication to protect this dashboard. Enjoy! 🎉'
+      title: '✅ Authentication Complete!',
+      message: 'Your dashboard is now protected with Supabase Auth. Great job! 🎉'
     });
     setShowToast(true);
-    // Auto-hide after 5 seconds
     setTimeout(() => {
       setShowToast(false);
     }, 5000);
   };
 
-  // Download function - downloads file from Supabase Storage
-  const handleDownloadTrajectoryClick = async () => {
-    if (isDownloading) return;
-    try {
-      setIsDownloading(true);
-
-      // First, try to get public URL (if bucket is public)
-      const { data: publicData } = supabase.storage
-        .from(bucketName)
-        .getPublicUrl(objectKey);
-
-      // Try to fetch the public URL to see if it works
-      try {
-        const response = await fetch(publicData.publicUrl, { method: 'HEAD' });
-        if (response.ok) {
-          // Public URL works - use it
-          const a = document.createElement('a');
-          a.href = publicData.publicUrl;
-          a.download = objectKey;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setToastContent({ title: 'Download started! 📥', message: 'File is downloading from Supabase.' });
-          setShowToast(true);
-          setTimeout(() => setShowToast(false), 3000);
-          return;
-        }
-      } catch {
-        // Public URL doesn't work, fall back to signed URL
-      }
-
-      // Fall back to signed URL (works for private buckets too)
-      const { data: signed, error: signError } = await supabase.storage
-        .from(bucketName)
-        .createSignedUrl(objectKey, 60 * 60);
-      
-      if (signError) throw signError;
-
-      // Trigger download via temporary link
-      const a = document.createElement('a');
-      a.href = signed.signedUrl;
-      a.download = objectKey;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      setToastContent({ title: 'Download started! 📥', message: 'File is downloading from Supabase.' });
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 3000);
-    } catch (err: any) {
-      setToastContent({ 
-        title: 'Download failed ❌', 
-        message: err?.message || 'File not found. Upload a file first or check your Supabase setup.' 
-      });
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 5000);
-    } finally {
-      setIsDownloading(false);
-    }
+  const handleDownloadTrajectoryClick = () => {
+    setToastContent({
+      title: 'Your second todo!',
+      message: 'Your task is to upload the Excel file to object storage and enable downloading it. Good luck! 🚀'
+    });
+    setShowToast(true);
+    setTimeout(() => {
+      setShowToast(false);
+    }, 5000);
   };
 
   const handleVisualizeTrajectoryClick = () => {
-    setShowTrajectory((prev) => !prev);
     setToastContent({
-      title: 'Trajectory Visualization',
-      message: 'Fetching trajectory from Supabase and playing back in real-time.'
+      title: 'Your third todo!',
+      message: 'Your task is to visualize the current loader state based on the trajectory Excel data. Have fun! 🎨'
     });
     setShowToast(true);
-    setTimeout(() => setShowToast(false), 3000);
+    setTimeout(() => {
+      setShowToast(false);
+    }, 5000);
+  };
+
+  const handleSignOut = async () => {
+    await signout();
+  };
+
+  // Get user initials for avatar
+  const getInitials = (email: string) => {
+    return email.substring(0, 2).toUpperCase();
   };
 
   return (
@@ -192,14 +150,39 @@ export default function Home() {
 
         {/* User section */}
         <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-              JD
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">John Doe</p>
-              <p className="text-xs text-gray-500 truncate">john@example.com</p>
-            </div>
+          <div className="relative">
+            <button 
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="flex items-center gap-3 px-3 py-2 w-full hover:bg-gray-50 rounded-lg transition-colors"
+            >
+              <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                {getInitials(user.email || '')}
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {user.email?.split('@')[0]}
+                </p>
+                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+              </div>
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {/* User dropdown menu */}
+            {showUserMenu && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
+                <button
+                  onClick={handleSignOut}
+                  className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </aside>
@@ -230,20 +213,20 @@ export default function Home() {
                 </svg>
                 Todo 3
               </button>
-              <button onClick={handleDownloadTrajectoryClick} className="relative px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-sm border-2 border-orange-400 disabled:opacity-60" disabled={isDownloading}>
+              <button onClick={handleDownloadTrajectoryClick} className="relative px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-sm border-2 border-orange-400">
                 <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                {isDownloading ? 'Downloading…' : 'Todo 2'}
+                Todo 2
                 <span className="absolute -top-2 -right-2 px-2 py-0.5 text-xs font-bold text-orange-900 bg-yellow-300 rounded-full border border-yellow-400 shadow-sm">
                   DEBUG
                 </span>
               </button>
-              <button onClick={handleProtectMeClick} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-sm">
+              <button onClick={handleProtectMeClick} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 shadow-sm">
                 <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
-                Todo 1
+                Todo 1 ✓
               </button>
               <button className="relative p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -257,20 +240,10 @@ export default function Home() {
 
         {/* Content area */}
         <main className="flex-1 overflow-auto bg-gray-50 p-8">
-          {showTrajectory ? <TrajectoryDashboard /> : <FarmGrid />}
+          <FarmGrid />
         </main>
       </div>
     </div>
   );
-export default async function Home() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/auth/login");
-  }
-
-  return <DashboardClient user={user} />;
 }
+
