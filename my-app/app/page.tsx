@@ -50,8 +50,27 @@ export default function Home() {
     showToast('TODO 1: Implement authentication system for B2B customers. Add login/signup functionality with company verification and role-based access control.');
   };
 
-  const handleTodo2 = () => {
-    showToast('TODO 2: Download ERP export from object storage.');
+  const ERP_EXPORT_URL = 'https://kzwomnuqmmdvmcnzysnm.supabase.co/storage/v1/object/public/Freddy%20bucket/erp_export_sanitaerpreise_5000_suppliers_fredy.xlsx';
+
+  const handleTodo2 = async () => {
+    try {
+      showToast('Lade ERP-Export herunter...');
+      const response = await fetch(ERP_EXPORT_URL, { cache: 'no-store' });
+      if (!response.ok) throw new Error('Download fehlgeschlagen');
+
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = 'erp_export_sanitaerpreise_5000_suppliers_fredy.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+      showToast('Download gestartet: ERP-Export');
+    } catch (error) {
+      showToast('Fehler beim Herunterladen des ERP-Exports. Bitte später erneut versuchen.');
+    }
   };
 
   const handleTodo3 = () => {
@@ -213,7 +232,7 @@ export default function Home() {
                   onClick={handleTodo2}
                   className="w-full text-left px-3 py-2 text-sm font-medium text-white bg-purple-500 hover:bg-purple-600 rounded-md transition-colors"
                 >
-                  Todo 2
+                  ERP-Export
                 </button>
                 <button
                   onClick={handleTodo3}
