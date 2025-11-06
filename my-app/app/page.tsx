@@ -2,10 +2,14 @@
 
 import FarmGrid from "./components/FarmGrid";
 import { useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 
 export default function Home() {
   const [showToast, setShowToast] = useState(false);
   const [toastContent, setToastContent] = useState({ title: '', message: '' });
+  const [isDownloading, setIsDownloading] = useState(false);
+  const bucketName = process.env.NEXT_PUBLIC_SUPABASE_BUCKET || 'trajectory-data';
+  const objectKey = 'tractor_trajectory_nov6.xlsx'; // Filename in Supabase Storage
 
   const handleProtectMeClick = () => {
     setToastContent({
@@ -19,16 +23,65 @@ export default function Home() {
     }, 5000);
   };
 
-  const handleDownloadTrajectoryClick = () => {
-    setToastContent({
-      title: 'Your second todo!',
-      message: 'Your task is to upload the Excel file to object storage and enable downloading it. Good luck! 🚀'
-    });
-    setShowToast(true);
-    // Auto-hide after 5 seconds
-    setTimeout(() => {
-      setShowToast(false);
-    }, 5000);
+  // Download function - downloads file from Supabase Storage
+  const handleDownloadTrajectoryClick = async () => {
+    if (isDownloading) return;
+    try {
+      setIsDownloading(true);
+
+      // First, try to get public URL (if bucket is public)
+      const { data: publicData } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(objectKey);
+
+      // Try to fetch the public URL to see if it works
+      try {
+        const response = await fetch(publicData.publicUrl, { method: 'HEAD' });
+        if (response.ok) {
+          // Public URL works - use it
+          const a = document.createElement('a');
+          a.href = publicData.publicUrl;
+          a.download = objectKey;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setToastContent({ title: 'Download started! 📥', message: 'File is downloading from Supabase.' });
+          setShowToast(true);
+          setTimeout(() => setShowToast(false), 3000);
+          return;
+        }
+      } catch {
+        // Public URL doesn't work, fall back to signed URL
+      }
+
+      // Fall back to signed URL (works for private buckets too)
+      const { data: signed, error: signError } = await supabase.storage
+        .from(bucketName)
+        .createSignedUrl(objectKey, 60 * 60);
+      
+      if (signError) throw signError;
+
+      // Trigger download via temporary link
+      const a = document.createElement('a');
+      a.href = signed.signedUrl;
+      a.download = objectKey;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setToastContent({ title: 'Download started! 📥', message: 'File is downloading from Supabase.' });
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    } catch (err: any) {
+      setToastContent({ 
+        title: 'Download failed ❌', 
+        message: err?.message || 'File not found. Upload a file first or check your Supabase setup.' 
+      });
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 5000);
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const handleVisualizeTrajectoryClick = () => {
@@ -175,11 +228,11 @@ export default function Home() {
                 </svg>
                 Todo 3
               </button>
-              <button onClick={handleDownloadTrajectoryClick} className="relative px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-sm border-2 border-orange-400">
+              <button onClick={handleDownloadTrajectoryClick} className="relative px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-sm border-2 border-orange-400 disabled:opacity-60" disabled={isDownloading}>
                 <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                Todo 2
+                {isDownloading ? 'Downloading…' : 'Todo 2'}
                 <span className="absolute -top-2 -right-2 px-2 py-0.5 text-xs font-bold text-orange-900 bg-yellow-300 rounded-full border border-yellow-400 shadow-sm">
                   DEBUG
                 </span>
