@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 
 interface Message {
   id: string;
@@ -41,6 +42,10 @@ export default function Home() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  type CustomerSegment = 'Standard' | 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
+  const [customerSegment, setCustomerSegment] = useState<CustomerSegment>('Standard');
+  const [products, setProducts] = useState<Product[]>([]);
+
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 20000);
@@ -51,6 +56,68 @@ export default function Home() {
   };
 
   const ERP_EXPORT_URL = 'https://kzwomnuqmmdvmcnzysnm.supabase.co/storage/v1/object/public/Freddy%20bucket/erp_export_sanitaerpreise_5000_suppliers_fredy.xlsx';
+
+  const normalizeHeader = (header: string) =>
+    header
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/ä/g, 'ae')
+      .replace(/ö/g, 'oe')
+      .replace(/ü/g, 'ue')
+      .replace(/ß/g, 'ss');
+
+  const parseNumber = (value: unknown): number => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const cleaned = value.replace(/[^0-9.,-]/g, '').replace(/\./g, '').replace(',', '.');
+      const n = Number(cleaned);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  };
+
+  const fetchAndParseERP = async () => {
+    try {
+      const response = await fetch(ERP_EXPORT_URL, { cache: 'no-store' });
+      if (!response.ok) throw new Error('ERP-Download fehlgeschlagen');
+      const arrayBuffer = await response.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
+
+      const mapped: Product[] = rows.map((row, idx) => {
+        const keys = Object.keys(row).reduce<Record<string, any>>((acc, k) => {
+          acc[normalizeHeader(k)] = row[k];
+          return acc;
+        }, {});
+
+        const name = keys['name'] || keys['produkt'] || keys['produktname'] || keys['artikel'] || keys['bezeichnung'] || `Produkt ${idx + 1}`;
+        const category = keys['category'] || keys['kategorie'] || keys['warengruppe'] || 'Sonstiges';
+        const unit = keys['unit'] || keys['einheit'] || 'Stück';
+        const description = keys['description'] || keys['beschreibung'] || '';
+        const basePrice = parseNumber(keys['price'] ?? keys['preis'] ?? keys['nettopreis'] ?? keys['vk'] ?? keys['vkpreis'] ?? 0);
+
+        return {
+          id: String(keys['id'] || keys['artikelnummer'] || keys['sku'] || `${firstSheetName}-${idx + 1}`),
+          name: String(name),
+          category: String(category),
+          basePrice,
+          unit: String(unit),
+          description: String(description),
+        } as Product;
+      }).filter(p => p.name && p.basePrice >= 0);
+
+      if (mapped.length > 0) {
+        setProducts(mapped);
+        showToast(`ERP-Daten geladen (${mapped.length} Produkte)`);
+      } else {
+        showToast('Keine Produkte im ERP-Export gefunden. Fallback-Daten werden verwendet.');
+      }
+    } catch (e) {
+      showToast('Fehler beim Laden der ERP-Daten. Fallback-Daten werden verwendet.');
+    }
+  };
 
   const handleTodo2 = async () => {
     try {
@@ -74,7 +141,7 @@ export default function Home() {
   };
 
   const handleTodo3 = () => {
-    showToast('TODO 3: Use ERP export data to simulate realistic sanitary pricing agent. Parse product data, implement dynamic pricing based on customer segments, and add intelligent product recommendations.');
+    fetchAndParseERP();
   };
 
   const scrollToBottom = () => {
@@ -85,28 +152,66 @@ export default function Home() {
     scrollToBottom();
   }, [messages]);
 
+  useEffect(() => {
+    // Preload ERP data once on mount
+    fetchAndParseERP();
+  }, []);
+
+  const getSegmentedPrice = (basePrice: number, segment: CustomerSegment): number => {
+    const discountBySegment: Record<CustomerSegment, number> = {
+      Standard: 0,
+      Bronze: 0.03,
+      Silver: 0.07,
+      Gold: 0.12,
+      Platinum: 0.18,
+    };
+    const discount = discountBySegment[segment] ?? 0;
+    const price = basePrice * (1 - discount);
+    return Math.max(0, Number(price.toFixed(2)));
+  };
+
+  const getRecommendations = (category: string, source: Product[], take: number = 3): Product[] => {
+    const inCategory = source.filter(p => p.category.toLowerCase() === category.toLowerCase());
+    if (inCategory.length <= take) return inCategory;
+    // simple heuristic: pick highest base prices to mimic premium picks
+    return [...inCategory].sort((a, b) => b.basePrice - a.basePrice).slice(0, take);
+  };
+
   const generateResponse = (userInput: string): string => {
     const input = userInput.toLowerCase();
+    const data = products.length ? products : SAMPLE_PRODUCTS;
 
     // Product search
     if (input.includes('waschbecken') || input.includes('waschtisch')) {
-      const product = SAMPLE_PRODUCTS.find(p => p.category === 'Waschbecken');
-      return `Ich habe folgendes Waschbecken für Sie:\n\n**${product?.name}**\nBasis-Preis: €${product?.basePrice}\n\nMengenrabatte:\n• 10-49 Stück: 5% Rabatt\n• 50-99 Stück: 10% Rabatt\n• 100+ Stück: 15% Rabatt\n\nMöchten Sie ein Angebot erstellen?`;
+      const product = data.find(p => p.category.toLowerCase().includes('waschbecken')) || data[0];
+      if (!product) return 'Aktuell liegen keine passenden Waschbecken vor.';
+      const price = getSegmentedPrice(product.basePrice, customerSegment);
+      const recs = getRecommendations(product.category, data).filter(p => p.id !== product.id);
+      const recText = recs.length ? `\n\nEmpfehlungen:\n` + recs.map(r => `• ${r.name} – €${getSegmentedPrice(r.basePrice, customerSegment)}`).join('\n') : '';
+      return `Ich habe folgendes Waschbecken für Sie:\n\n**${product.name}**\nPreis (${customerSegment}): €${price} pro ${product.unit}${recText}`;
     }
 
     if (input.includes('armatur')) {
-      const product = SAMPLE_PRODUCTS.find(p => p.category === 'Armaturen');
-      return `Unsere Thermostat-Duscharmatur:\n\n**${product?.name}**\nBasis-Preis: €${product?.basePrice}\n${product?.description}\n\nVerfügbar in verschiedenen Ausführungen. Welche Menge benötigen Sie?`;
+      const product = data.find(p => p.category.toLowerCase().includes('armatur')) || data[0];
+      if (!product) return 'Aktuell liegen keine passenden Armaturen vor.';
+      const price = getSegmentedPrice(product.basePrice, customerSegment);
+      const recs = getRecommendations(product.category, data).filter(p => p.id !== product.id);
+      const recText = recs.length ? `\n\nEmpfehlungen:\n` + recs.map(r => `• ${r.name} – €${getSegmentedPrice(r.basePrice, customerSegment)}`).join('\n') : '';
+      return `Unsere Armatur-Empfehlung:\n\n**${product.name}**\nPreis (${customerSegment}): €${price}\n${product.description || ''}${recText}`;
     }
 
     if (input.includes('badewanne')) {
-      const product = SAMPLE_PRODUCTS.find(p => p.category === 'Badewannen');
-      return `**${product?.name}**\nBasis-Preis: €${product?.basePrice} pro ${product?.unit}\n\nInkl. Standardmontage-Set. Für Großbestellungen erstellen wir gerne ein individuelles Angebot!`;
+      const product = data.find(p => p.category.toLowerCase().includes('badewanne')) || data[0];
+      if (!product) return 'Aktuell liegen keine passenden Badewannen vor.';
+      const price = getSegmentedPrice(product.basePrice, customerSegment);
+      return `**${product.name}**\nPreis (${customerSegment}): €${price} pro ${product.unit}`;
     }
 
     if (input.includes('rohr') || input.includes('kupfer')) {
-      const product = SAMPLE_PRODUCTS.find(p => p.category === 'Rohre');
-      return `**${product?.name}**\nPreis: €${product?.basePrice} pro ${product?.unit}\n\nVerfügbare Längen: 1m, 2m, 3m, 5m\nMindestabnahme: 10 Meter\n\nWie viele Meter benötigen Sie?`;
+      const product = data.find(p => p.category.toLowerCase().includes('rohr')) || data[0];
+      if (!product) return 'Aktuell liegen keine passenden Rohre vor.';
+      const price = getSegmentedPrice(product.basePrice, customerSegment);
+      return `**${product.name}**\nPreis (${customerSegment}): €${price} pro ${product.unit}`;
     }
 
     // Pricing inquiries
@@ -121,8 +226,8 @@ export default function Home() {
 
     // Catalog request
     if (input.includes('katalog') || input.includes('sortiment') || input.includes('produkte')) {
-      return '📋 **Unser Sortiment:**\n\n' + SAMPLE_PRODUCTS.map(p =>
-        `• ${p.name} - €${p.basePrice} (${p.category})`
+      return '📋 **Unser Sortiment:**\n\n' + data.slice(0, 20).map(p =>
+        `• ${p.name} - €${getSegmentedPrice(p.basePrice, customerSegment)} (${p.category})`
       ).join('\n') + '\n\nFür detaillierte Informationen nennen Sie mir bitte das gewünschte Produkt!';
     }
 
@@ -241,6 +346,23 @@ export default function Home() {
                   Todo 3
                 </button>
               </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 p-4">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-3">Kunde</h3>
+              <label className="block text-xs text-slate-600 dark:text-slate-400 mb-1">Segment</label>
+              <select
+                value={customerSegment}
+                onChange={(e) => setCustomerSegment(e.target.value as CustomerSegment)}
+                className="w-full text-sm px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md"
+              >
+                <option value="Standard">Standard</option>
+                <option value="Bronze">Bronze</option>
+                <option value="Silver">Silver</option>
+                <option value="Gold">Gold</option>
+                <option value="Platinum">Platinum</option>
+              </select>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">Preise werden automatisch für das gewählte Segment berechnet.</p>
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 p-4">
